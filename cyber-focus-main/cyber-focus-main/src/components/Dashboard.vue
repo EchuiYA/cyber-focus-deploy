@@ -27,27 +27,18 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import axios from 'axios'
 import echarts from '../utils/echarts'
 
-const props = defineProps({
-  summary: {
-    type: Object,
-    default: () => ({
-      focusDuration: 0,
-      focusCount: 0,
-      distractCount: 0,
-      avgDuration: 0
-    })
-  },
-  weeklyFocus: {
-    type: Array,
-    default: () => []
-  },
-  hourlyDistract: {
-    type: Array,
-    default: () => []
-  }
+// ---------- 响应式变量（替代原 props）----------
+const summary = ref({
+  focusDuration: 0,
+  focusCount: 0,
+  distractCount: 0,
+  avgDuration: 0
 })
+const weeklyFocus = ref([])
+const hourlyDistract = ref([])
 
 const lineRef = ref(null)
 const barRef = ref(null)
@@ -61,7 +52,7 @@ function formatDuration(min) {
 }
 
 const cards = computed(() => {
-  const s = props.summary || {}
+  const s = summary.value || {}
   const focus = formatDuration(s.focusDuration)
   const avg = formatDuration(s.avgDuration)
   return [
@@ -73,17 +64,17 @@ const cards = computed(() => {
 })
 
 const hasLineData = computed(() => {
-  const arr = props.weeklyFocus || []
+  const arr = weeklyFocus.value || []
   return arr.length > 0 && arr.some(d => Number(d.duration) > 0)
 })
 
 const hasBarData = computed(() => {
-  const arr = props.hourlyDistract || []
+  const arr = hourlyDistract.value || []
   return arr.length > 0 && arr.some(v => Number(v) > 0)
 })
 
 function buildLineOption() {
-  const arr = props.weeklyFocus || []
+  const arr = weeklyFocus.value || []
   const dates = arr.map(d => d.date)
   const durations = arr.map(d => Number(d.duration) || 0)
   return {
@@ -151,7 +142,7 @@ function buildLineOption() {
 }
 
 function buildBarOption() {
-  const arr = props.hourlyDistract || []
+  const arr = hourlyDistract.value || []
   const hours = arr.map((_, i) => i + '时')
   const values = arr.map(v => Number(v) || 0)
   const maxVal = values.length ? Math.max(...values) : 0
@@ -226,9 +217,39 @@ function handleResize() {
   barChart && barChart.resize()
 }
 
-onMounted(() => {
+onMounted(async () => {
   lineChart = echarts.init(lineRef.value)
   barChart = echarts.init(barRef.value)
+
+  // 请求后端真实数据
+  try {
+    const token = localStorage.getItem('token')
+    const res = await axios.get('/api/stats', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (res.data.code === 0) {
+      const { today, week_trend, hour_distraction } = res.data.data
+      // today → summary
+      summary.value = {
+        focusDuration: today.focus_minutes || 0,
+        distractCount: today.distraction_count || 0,
+        focusCount: 0,
+        avgDuration: 0
+      }
+      // week_trend → weeklyFocus（focus_minutes 映射为 duration）
+      weeklyFocus.value = (week_trend || []).map(d => ({
+        date: d.date,
+        duration: d.focus_minutes
+      }))
+      // hour_distraction → hourlyDistract（纯数字数组，0-23 小时）
+      hourlyDistract.value = (hour_distraction || []).map(
+        d => d.distraction_count
+      )
+    }
+  } catch (e) {
+    console.error('获取统计数据失败', e)
+  }
+
   renderLine()
   renderBar()
   window.addEventListener('resize', handleResize)
@@ -242,8 +263,8 @@ onBeforeUnmount(() => {
   barChart = null
 })
 
-watch(() => props.weeklyFocus, renderLine, { deep: true })
-watch(() => props.hourlyDistract, renderBar, { deep: true })
+watch(weeklyFocus, renderLine, { deep: true })
+watch(hourlyDistract, renderBar, { deep: true })
 </script>
 
 <style scoped>
