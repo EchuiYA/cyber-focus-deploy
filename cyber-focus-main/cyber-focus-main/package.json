@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run"
   },
-  "dependencies": {
+   "dependencies": {
+    "axios": "^1.6.0",
     "echarts": "^5.5.0",
     "vue": "^3.4.0"
   },
